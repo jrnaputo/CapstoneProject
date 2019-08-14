@@ -1,0 +1,255 @@
+---
+title: MILESTONE REPORT
+subtitle: Data Science Capstone
+author: JOHN JOSEPH R. NAPUTO
+date: AUGUST 15, 2019
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## **I. Introduction**
+This milestone report contains exploratory data analysis of the SwiftKey dataset provided in the Coursera Data Science Capstone course. The data consists of 3 text files containing text from 3 different sources (blogs, new, and twitter). It can be downloaded in the link below:
+
+https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+
+The goal of this project is to perform an exploratory data analysis and to provide an overview of the dataset. The step-by-step process in developing the prediction algorithm is summarized in this report.
+
+
+## **II. Objective**
+1. Demonstrate that you've downloaded the data and have successfully loaded it in.
+
+2. Create a basic report of summary statistics about the data sets.
+
+3. Report any interesting findings that you amassed so far.
+
+4. Get feedback on your plans for creating a prediction algorithm and Shiny app.
+
+
+## **III. Exploratory Data Analysis**
+#### **Data Loading**
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+# Loading necessary packages
+library(dplyr)
+library(stringi)
+library(kableExtra)
+library(tm)
+library(RWeka)
+library(NLP)
+library(ggplot2)
+library(SnowballC)
+library(knitr)
+library(textmineR)
+library(RColorBrewer)
+library(wordcloud)
+```
+
+Downloading the dataset from the link below: https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip
+```{r, message = FALSE, warning = FALSE, eval = FALSE}
+# Downloading the data from the web
+if(!file.exists("./data")){dir.create("./data")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+download.file(fileUrl, destfile = "./data/Coursera-SwiftKey.zip")
+unzip("./data/Coursera-SwiftKey.zip", exdir = "./data")
+```
+
+The datasets consist of text files from 3 different sources: 
+
+1. News 
+2. Blogs
+3. Twitter
+
+The text data files are provided in 4 different languages: 
+
+1. German 
+2. English - United States 
+3. Finnish
+4. Russian 
+
+In this project, we will only focus on the **English - United States** data sets.
+```{r, message = FALSE, warning = FALSE}
+# Loading the English - United States dataset
+blogs <- readLines("./data/final/en_US/en_US.blogs.txt", encoding = "UTF-8", skipNul = TRUE)
+news <- readLines("./data/final/en_US/en_US.news.txt", encoding = "UTF-8", skipNul = TRUE)
+twitter <- readLines("./data/final/en_US/en_US.twitter.txt", encoding = "UTF-8", skipNul = TRUE)
+```
+
+#### **Data Summary**
+The table below shows the summary of the English - United States datasets being evaluated and to be used in the predictive algorithm.
+```{r, message = FALSE, warning = FALSE}
+# Get file sizes
+blogs.size <- round(file.info("./data/final/en_US/en_US.blogs.txt")$size/1024^2, 
+        digits = 2)
+news.size <- round(file.info("./data/final/en_US/en_US.news.txt")$size/1024^2,
+        digits = 2)
+twitter.size <- round(file.info("./data/final/en_US/en_US.twitter.txt")$size/1024^2,
+        digits = 2)
+
+# Get words in files
+blogs.words <- stri_count_words(blogs)
+news.words <- stri_count_words(news)
+twitter.words <- stri_count_words(twitter)
+
+# Summary of the data sets
+df = data.frame(Dataset = c("blogs", "news", "twitter"),
+           FileSize = c(blogs.size, news.size, twitter.size),
+           Lines = c(length(blogs), length(news), length(twitter)),
+           Words = c(sum(blogs.words), sum(news.words), sum(twitter.words)),
+           Min = c(min(blogs.words), min(news.words), min(twitter.words)),
+           Mean = c(round(mean(blogs.words), digits = 2), round(mean(news.words), digits = 2),
+                    round(mean(twitter.words), digits = 2)),
+           Max = c(max(blogs.words), max(news.words), max(twitter.words)))
+
+# Renaming columns of the dataframe
+names(df)[1:7] <- c("Dataset", "File Size (in MB)", "Line Count", "Word Count", 
+                    "Minimum Word Count", "Mean Word Count", "Maximum Word Count")
+
+# Generating the table
+kable(df, caption = "Statistical Summary of English - United States Text Files", align = 'c',
+      format.args = list(big.mark=",")) %>% kable_styling(position = "center")
+```
+
+#### **Data Cleaning**
+Before performing exploratory data analysis, data cleaning must be done first. This involves removing URLs, special characters, punctuations, numbers, excess whitespace, stopwords, and changing the text to lowercase. 
+
+Due to hardware limitations, each file will be sampled to only 1% in order to demonstrate the data cleaning and exploratory data analysis.
+```{r, warning = FALSE, message = FALSE,}
+# Data Sampling
+# twitter
+twitcon <- file("./data/final/en_US/en_US.twitter.txt")
+subtwitter <- readLines(twitcon, length(twitter) * 0.01)
+save(subtwitter,file="./data/final/en_US/subtwitter.txt")
+close(twitcon)
+
+# blog
+blogcon <- file("./data/final/en_US/en_US.blogs.txt")
+subblogs <- readLines(blogcon, length(blogs) * 0.01)
+save(subblogs,file="./data/final/en_US/subblogs.txt")
+close(blogcon)
+
+# news
+newscon <- file("./data/final/en_US/en_US.news.txt")
+subnews <- readLines(newscon, length(news) * 0.01)
+save(subnews,file="./data/final/en_US/subnews.txt")
+close(newscon)
+```
+
+The table below shows the summary of the sampled English - United States datasets being evaluated and to be used in the predictive algorithm.
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+# Get file sizes
+sampled_blogs.size <- round(file.info("./data/final/en_US/subblogs.txt")$size/1024^2, digits = 2)
+sampled_news.size <- round(file.info("./data/final/en_US/subnews.txt")$size/1024^2, digits = 2)
+sampled_twitter.size <- round(file.info("./data/final/en_US/subtwitter.txt")$size/1024^2, digits = 2)
+# Get words in files
+sampled_blogs.words <- stri_count_words(subblogs)
+sampled_news.words <- stri_count_words(subnews)
+sampled_twitter.words <- stri_count_words(subtwitter)
+
+# Summary of the data sets
+sampled_df = data.frame(Dataset = c("blogs", "news", "twitter"),
+                        FileSize = c(sampled_blogs.size, sampled_news.size, sampled_twitter.size),
+                        Lines = c(length(subblogs), length(subnews), length(subtwitter)),
+                        Words = c(sum(sampled_blogs.words), sum(sampled_news.words),
+                                  sum(sampled_twitter.words)),
+                        Min = c(min(sampled_blogs.words), min(sampled_news.words),
+                                min(sampled_twitter.words)),
+                        Mean = c(round(mean(sampled_blogs.words), digits = 2),
+                                 round(mean(sampled_news.words), digits = 2),
+                                 round(mean(sampled_twitter.words), digits = 2)),
+                        Max = c(max(sampled_blogs.words), max(sampled_news.words),
+                                max(sampled_twitter.words)))
+
+# Renaming columns of the dataframe
+names(sampled_df)[1:7] <- c("Dataset", "File Size (in MB)", "Line Count", "Word Count",
+                     "Minimum Word Count", "Mean Word Count", "Maximum Word Count")
+
+# # Generating the table
+kable(sampled_df, caption = "Statistical Summary of the English - United States Text Files",
+       align = 'c', format.args = list(big.mark=",")) %>% kable_styling(position = "center")
+```
+
+#### **Data Visualization**
+After transforming and cleaning the data, it is ready for some exploratory analysis to determine the most frequent unigrams, bigrams, and trigrams (sets of 1, 2, and 3 words that occur together).
+
+```{r}
+# Tokenization
+data.sample <- c(subnews, subblogs, subtwitter)
+corpus <- VCorpus(VectorSource(data.sample))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stripWhitespace)
+profanewords <- readLines("https://www.cs.cmu.edu/~biglou/resources/bad-words.txt",
+                           encoding = "en")
+corpus <- tm_map(corpus, removeWords, profanewords)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stemDocument)
+
+corpusDf <- data.frame(text=unlist(sapply(corpus$content,`[`, "content")),stringsAsFactors=F)
+
+# N-Grams Function
+findNGrams <- function(corp, grams) {
+  ngram <- NGramTokenizer(corp, Weka_control(min = grams, max = grams, 
+                                             delimiters = " \\r\\n\\t.,;:\"()?!"))
+  ngram2 <- data.frame(table(ngram))
+  #pick only top 100
+  ngram3 <- ngram2[order(ngram2$Freq,decreasing = TRUE),][1:100,]
+  colnames(ngram3) <- c("String","Count")
+  ngram3
+}
+
+UniGrams <- findNGrams(corpusDf, 1)
+BiGrams <- findNGrams(corpusDf, 2)
+TriGrams <- findNGrams(corpusDf, 3)
+```
+
+```{r, message = FALSE, warning = FALSE}
+par(mfrow = c(1, 1))
+palette <- brewer.pal(8, "RdYlBu")
+
+# Word Cloud of 1-Gram
+wordcloud(UniGrams[,1], UniGrams[,2], scale=c(3,1), min.freq =1, 
+          max.words=Inf, random.order = F, colors=palette)
+text(x=0.5, y=0, "UniGram Word Cloud")
+
+# Histogram of 1-Gram
+UniGrams_Top20 <- UniGrams[1:20,]
+ggplot(UniGrams_Top20, aes(x = reorder(UniGrams_Top20$String, -UniGrams_Top20$Count), 
+                                    y = UniGrams_Top20$Count)) + 
+        geom_bar(stat = "identity", fill = "#619BFF") + 
+        theme(axis.text.x = element_text(angle = 30, hjust = 1)) + 
+        labs(title="Histogram for UniGram",x="Words",y="Frequency")
+
+# Wordcloud of 2-Grams
+wordcloud(BiGrams[,1], BiGrams[,2], scale = c(3, 1), min.freq = 1, max.words=Inf, random.order = F, ordered.colors = F, colors = palette)
+text(x=0.5, y=0, " BiGram Word Cloud")
+
+# Histogram of 2-Grams
+BiGrams_Top20 <- BiGrams[1:20,]
+ggplot(BiGrams_Top20, aes(x = reorder(BiGrams_Top20$String, -BiGrams_Top20$Count), 
+                                    y = BiGrams_Top20$Count)) + 
+        geom_bar(stat = "identity", fill = "#619BFF") + 
+        theme(axis.text.x = element_text(angle = 30, hjust = 1)) + 
+        labs(title="Histogram of BiGram",x="Words",y="Frequency")
+
+# Wordcloud of 3-Grams
+wordcloud(TriGrams[,1], TriGrams[,2], scale = c(3, 1), min.freq = 1, max.words=Inf, random.order = F, ordered.colors = F, colors = palette)
+text(x=0.5, y=0, "TriGram Word Cloud")
+
+# Histogram of 3-Grams
+TriGrams_Top20 <- TriGrams[1:20,]
+ggplot(TriGrams_Top20, aes(x = reorder(TriGrams_Top20$String, -TriGrams_Top20$Count), 
+                                    y = TriGrams_Top20$Count)) +
+        geom_bar(stat = "identity", fill = "#619BFF") + 
+        theme(axis.text.x = element_text(angle = 30, hjust = 1)) + 
+        labs(title="Histogram of TriGram",x="Words",y="Frequency")
+```
+
+## **Next Steps For Final Project**
+This concludes the exploratory analysis on the dataset. The next steps of this capstone project would be the following is to finalize the predictive algorithm with the use of N-Gram (similar to what we did in the exploratory analysis above), and deploy the algorithm as a Shiny App. For the user interface of the Shiny App, it will consist of a text input box that will allow a user to enter a word or a phrase. Then the app will use our algorithm to suggest the most likely next word.
+
